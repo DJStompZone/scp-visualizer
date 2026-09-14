@@ -236,9 +236,7 @@ export default function App() {
                 ORBITAL<span className="text-cyan-300">//</span>GLITCH
               </h1>
               <p className="mt-2 max-w-[440px] text-[13px] leading-relaxed text-white/65">
-                Your CSS stacked-div extrusion, rebuilt as <span className="text-white">real extruded geometry</span> — same
-                9s orbit / bob / flip / throb choreography, now driven live by an <span className="text-white">FFT + beat detector</span> with
-                shader-grade glitch. Built for screen-capture.
+                SCP music visualizer, <span className="text-white">driven live by FFT</span> with shader-grade glitch. Built for screen-capture.
               </p>
             </div>
             <div className="space-y-2.5 p-6 pt-5">
