@@ -67,7 +67,6 @@ class AudioEngine {
 
   // idle simulation
   private idleTime = 0;
-  private idleNextKick = 0;
 
   // demo sequencer
   demoPlaying = false;
@@ -694,35 +693,31 @@ class AudioEngine {
   private simulateIdle(dt: number) {
     this.idleTime += dt;
     const t = this.idleTime;
-    // fake kick every 0.5s
-    if (t >= this.idleNextKick) {
-      this.idleNextKick = t + 0.5;
-      this.simKick = 1;
-    }
-    this.simKick *= Math.exp(-dt * 7);
+    
+    // gentle wobbles for idle visual interest, no harsh kicks
     const wob = (f: number, p: number) => 0.5 + 0.5 * Math.sin(t * f + p);
-    this.simBands[0] = Math.min(1, 0.18 + this.simKick * 0.72 + wob(1.7, 0) * 0.08);
-    this.simBands[1] = Math.min(1, 0.14 + this.simKick * 0.3 + wob(2.3, 1.4) * 0.16);
-    this.simBands[2] = Math.min(1, 0.1 + wob(3.1, 2.2) * 0.2 + this.simKick * 0.12);
-    this.simBands[3] = Math.min(1, 0.08 + wob(4.7, 0.6) * 0.18);
-    this.simBands[4] = Math.min(1, 0.06 + wob(6.3, 3.1) * 0.14);
+    this.simBands[0] = 0.08 + wob(1.7, 0) * 0.04;
+    this.simBands[1] = 0.06 + wob(2.3, 1.4) * 0.06;
+    this.simBands[2] = 0.04 + wob(3.1, 2.2) * 0.08;
+    this.simBands[3] = 0.02 + wob(4.7, 0.6) * 0.10;
+    this.simBands[4] = 0.02 + wob(6.3, 3.1) * 0.08;
+    
     // fake spectrum curve for the strip
     const n = this.freqData.length;
     for (let i = 0; i < n; i++) {
       const x = i / n;
       const env = Math.exp(-x * 5.2) * 0.9 + Math.exp(-Math.pow((x - 0.18) * 9, 2)) * 0.35;
-      const ripple = 0.75 + 0.25 * Math.sin(i * 0.32 + t * 7) * Math.sin(i * 0.071 - t * 3.4);
-      const v = Math.min(1, env * ripple * (0.55 + this.simKick * 0.9 + wob(2.1, i * 0.01) * 0.25));
+      const ripple = 0.75 + 0.25 * Math.sin(i * 0.32 + t * 2) * Math.sin(i * 0.071 - t * 1.4);
+      const v = env * ripple * (0.2 + wob(2.1, i * 0.01) * 0.15);
       this.freqData[i] = Math.round(v * 255);
     }
     const m = this.timeData.length;
     for (let i = 0; i < m; i++) {
       const ph = (i / m) * Math.PI * 2;
-      const v = Math.sin(ph * 3 + t * 9) * 0.4 + Math.sin(ph * 7 - t * 14) * 0.22 * this.simKick + Math.sin(ph * 23 + t * 31) * 0.08;
+      const v = Math.sin(ph * 3 + t * 4) * 0.1 + Math.sin(ph * 23 + t * 11) * 0.03;
       this.timeData[i] = Math.round(128 + v * 90);
     }
   }
-  private simKick = 0;
 
   getLevels(): BandLevels {
     const bass = this.readBand(0);
@@ -741,7 +736,7 @@ class AudioEngine {
       }
       rms = Math.sqrt(s / (m / 2));
     } else {
-      rms = 0.12 + this.simKick * 0.4;
+      rms = 0.05; // just a low constant base for idle
     }
     return { bass, lowMid, mid, highMid, treble, energy, rms, beat: this.beatFlag, beatPulse: this.beatPulse };
   }

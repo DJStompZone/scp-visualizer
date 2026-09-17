@@ -30,14 +30,7 @@ function backInOut(t: number, s = 1.70158): number {
   return (Math.pow(u, 2) * ((c2 + 1) * u + c2) + 2) / 2;
 }
 
-/** wind-up ease mimicking cubic-bezier(1.2,-.75,.3,1.1) */
-function windUp(t: number): number {
-  t = clamp01(t);
-  // overshooting cubic approximation
-  const c1 = 1.2;
-  const c3 = c1 + 1;
-  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
-}
+/* windUp function removed */
 
 /* ---------------- ORBIT: 0 → 120 → 240 → 360 (deg) ----------------
    0%,10% => 0 | 33.333%,43.333% => 120 | 66.667%,76.667% => 240 | 100% => 360 */
@@ -69,13 +62,7 @@ interface BobKey {
 }
 const BOB_KEYS: BobKey[] = [
   { t: 0.0, y: 0, sy: 1 },
-  { t: 0.2, y: 0, sy: 1 },
-  { t: 0.35, y: -3, sy: 1.05 },
-  { t: 0.5, y: 0, sy: 1 },
-  { t: 0.7, y: -39, sy: 1.05 },
-  { t: 0.83, y: -1, sy: 0.8 },
-  { t: 0.9, y: -1, sy: 0.8 },
-  { t: 0.96, y: -1, sy: 1.05 },
+  { t: 0.5, y: -8, sy: 1.02 },
   { t: 1.0, y: 0, sy: 1 },
 ];
 
@@ -87,30 +74,15 @@ export function bobTransform(timeSec: number): { y: number; sy: number } {
     if (p >= a.t && p <= b.t) {
       const span = b.t - a.t;
       const local = span <= 0 ? 0 : (p - a.t) / span;
-      // big jump uses wind-up overshoot, squash uses snap
-      const e = i === 3 || i === 4 ? windUp(local) : sstep(local);
-      return { y: a.y + (b.y - a.y) * e, sy: a.sy + (b.sy - a.sy) * sstep(local) };
+      const e = sstep(local);
+      return { y: a.y + (b.y - a.y) * e, sy: a.sy + (b.sy - a.sy) * e };
     }
   }
   return { y: 0, sy: 1 };
 }
 
-/* ---------------- FLIP: scaleX with quick mirror ----------------
-   0%,68% => 1 | 72% => -1 | 75%,100% => 1, 6s alternate */
-export function flipScaleX(timeSec: number): number {
-  const full = FLIP_PERIOD * 2; // alternate ping-pong
-  let ph = (((timeSec % full) + full) % full) / FLIP_PERIOD; // 0..2
-  if (ph > 1) ph = 2 - ph; // reverse
-  const p = ph; // 0..1
-  if (p <= 0.68) return 1;
-  if (p <= 0.72) {
-    const local = (p - 0.68) / 0.04;
-    return 1 + (-1 - 1) * sstep(local);
-  }
-  if (p <= 0.75) {
-    const local = (p - 0.72) / 0.03;
-    return -1 + (1 - -1) * sstep(local);
-  }
+/* ---------------- FLIP: removed to calm the idle state ---------------- */
+export function flipScaleX(_timeSec: number): number {
   return 1;
 }
 

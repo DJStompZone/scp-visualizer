@@ -550,6 +550,7 @@ const VisualizerCanvas = forwardRef<VisualizerHandle, Props>(function Visualizer
     /* ---------- loop ---------- */
     const clock = new THREE.Clock();
     let elapsed = 0;
+    let orbitElapsed = 0;
     let fpsFrames = 0;
     let fpsTime = 0;
     let raf = 0;
@@ -568,6 +569,8 @@ const VisualizerCanvas = forwardRef<VisualizerHandle, Props>(function Visualizer
       audioEngine.update(dt);
       const L = audioEngine.getLevels();
       if (L.beat) cbRef.current.onBeat?.();
+      
+      orbitElapsed += rawDt * P.scene.speed * (1 + L.energy * 0.5);
 
       // preset / toggles sync (cheap checks)
       if (P.mesh.material !== lastPreset) {
@@ -610,10 +613,10 @@ const VisualizerCanvas = forwardRef<VisualizerHandle, Props>(function Visualizer
       (gyro2.material as THREE.MeshBasicMaterial).blending = isPaper ? THREE.NormalBlending : THREE.AdditiveBlending;
 
       /* ----- orbital choreography (original timing + delays) ----- */
-      const orbitT = t + 0.6; // delay-1: -0.6s
+      const orbitT = orbitElapsed + 0.6; // delay-1: -0.6s
       const bobT = t - 0.04; // delay-3: 40ms
       const flipT = t - 1.2; // delay-2: 1.2s
-      const orbitDeg = orbitAngleDeg(orbitT * (1 + L.energy * 0.22));
+      const orbitDeg = orbitAngleDeg(orbitT);
       orbitGroup.rotation.z = (-orbitDeg * Math.PI) / 180;
 
       const bob = bobTransform(bobT);
@@ -739,13 +742,17 @@ const VisualizerCanvas = forwardRef<VisualizerHandle, Props>(function Visualizer
       key.intensity = isPaper ? 2.2 : 1.5 + L.energy * 0.5;
 
       /* ----- glitch engine ----- */
+      const isIdle = !audioEngine.liveInput && !audioEngine.offlineData;
+      
       // beat-triggered
       if (L.beat && P.glitch.auto && Math.random() < P.glitch.sensitivity * 0.85) trigger("random");
       // timed auto (like original GlitchController 0.5–3.5s)
       if (P.glitch.auto && t > nextAutoAt) {
-        trigger("random");
-        const urgency = P.glitch.sensitivity * 0.65 + L.energy * 0.35;
-        nextAutoAt = t + (3.4 - urgency * 2.8) * (0.5 + Math.random());
+        if (!isIdle || Math.random() > 0.8) {
+          trigger(isIdle ? "rgb" : "random");
+        }
+        const urgency = isIdle ? 0 : P.glitch.sensitivity * 0.65 + L.energy * 0.35;
+        nextAutoAt = t + (3.4 - urgency * 2.8) * (0.5 + Math.random()) + (isIdle ? 3 : 0);
       }
       // manual invert pulse on strong beats
       if (L.beat && P.glitch.invertPulse && L.bass > 0.62) G.invert = Math.min(1, G.invert + 0.55);
