@@ -54,6 +54,11 @@ class AudioEngine {
   freqData: Uint8Array = new Uint8Array(1024);
   timeData: Uint8Array = new Uint8Array(2048);
 
+  // offline mode
+  offlineData: { freq: Uint8Array; time: Uint8Array }[] | null = null;
+  offlineFps = 60;
+  offlineFrame = 0;
+
   // beat tracking
   private bassHistory: number[] = [];
   private lastBeatTime = 0;
@@ -258,6 +263,65 @@ class AudioEngine {
       this.audioEl.currentTime = t;
       this.fileCurrentTime = t;
     }
+  }
+
+  /* ---------------- offline (record mode) ---------------- */
+
+  async loadOffline(file: File, fps: number): Promise<number> {
+    this.ensureCtx();
+    if (!this.ctx) return 0;
+    
+    const arrayBuffer = await file.arrayBuffer();
+    const audioBuffer = await this.ctx.decodeAudioData(arrayBuffer);
+    
+    this.fileName = file.name;
+    this.fileDuration = audioBuffer.duration;
+    this.mode = "file";
+    this.offlineFps = fps;
+    this.offlineData = [];
+    
+    const offlineCtx = new OfflineAudioContext(
+      audioBuffer.numberOfChannels,
+      audioBuffer.length,
+      audioBuffer.sampleRate
+    );
+    
+    const source = offlineCtx.createBufferSource();
+    source.buffer = audioBuffer;
+    
+    const analyser = offlineCtx.createAnalyser();
+    analyser.fftSize = this.fftSize;
+    analyser.smoothingTimeConstant = this.smoothing;
+    
+    source.connect(analyser);
+    analyser.connect(offlineCtx.destination);
+    source.start(0);
+    
+    const totalFrames = Math.ceil(audioBuffer.duration * fps);
+    
+    // Schedule suspends for each frame
+    for (let i = 0; i < totalFrames; i++) {
+      const time = Math.max(0.0001, i / fps);
+      offlineCtx.suspend(time).then(() => {
+        const freq = new Uint8Array(analyser.frequencyBinCount);
+        const timeDom = new Uint8Array(analyser.fftSize);
+        analyser.getByteFrequencyData(freq);
+        analyser.getByteTimeDomainData(timeDom);
+        this.offlineData!.push({ freq, time: timeDom });
+        offlineCtx.resume();
+      });
+    }
+    
+    await offlineCtx.startRendering();
+    this.emit();
+    return audioBuffer.duration;
+  }
+
+  seekOfflineFrame(frame: number) {
+    if (!this.offlineData || !this.offlineData[frame]) return;
+    this.offlineFrame = frame;
+    this.freqData = this.offlineData[frame].freq;
+    this.timeData = this.offlineData[frame].time;
   }
 
   /* ---------------- mic ---------------- */
@@ -566,7 +630,9 @@ class AudioEngine {
   /* ---------------- analysis ---------------- */
 
   update(dt: number) {
-    if (this.analyser && this.liveInput && this.ctx?.state === "running") {
+    if (this.offlineData) {
+      // In offline mode, freqData and timeData are injected via seekOfflineFrame
+    } else if (this.analyser && this.liveInput && this.ctx?.state === "running") {
       this.analyser.getByteFrequencyData(this.freqData as Uint8Array<ArrayBuffer>);
       this.analyser.getByteTimeDomainData(this.timeData as Uint8Array<ArrayBuffer>);
     } else {
@@ -601,7 +667,7 @@ class AudioEngine {
   }
 
   private readBand(i: number): number {
-    if (!this.liveInput || !this.ctx) return this.simBand(i);
+    if ((!this.liveInput && !this.offlineData) || !this.ctx) return this.simBand(i);
     const [lo, hi] = BAND_RANGES[i];
     const bh = this.binHz();
     const loBin = Math.max(1, Math.floor(lo / bh));
@@ -666,7 +732,7 @@ class AudioEngine {
     const treble = this.readBand(4);
     const energy = Math.min(1, bass * 0.42 + lowMid * 0.22 + mid * 0.18 + highMid * 0.1 + treble * 0.08);
     let rms = 0;
-    if (this.liveInput) {
+    if (this.liveInput || this.offlineData) {
       const m = Math.min(this.timeData.length, 2048);
       let s = 0;
       for (let i = 0; i < m; i += 2) {

@@ -555,9 +555,10 @@ const VisualizerCanvas = forwardRef<VisualizerHandle, Props>(function Visualizer
     let raf = 0;
     const camShake = new THREE.Vector2();
 
-    function animate() {
-      raf = requestAnimationFrame(animate);
-      const rawDt = Math.min(clock.getDelta(), 0.05);
+    const isRecordMode = typeof window !== "undefined" && new URLSearchParams(window.location.search).has('record');
+
+    function tick(dtOverride?: number) {
+      const rawDt = dtOverride !== undefined ? dtOverride : Math.min(clock.getDelta(), 0.05);
       const P = paramsRef.current;
       const dt = rawDt * 1; // real dt for audio
       elapsed += rawDt * P.scene.speed;
@@ -818,7 +819,22 @@ const VisualizerCanvas = forwardRef<VisualizerHandle, Props>(function Visualizer
         fpsTime = 0;
       }
     }
-    animate();
+
+    function animate() {
+      if (!isRecordMode) raf = requestAnimationFrame(animate);
+      tick();
+    }
+
+    if (!isRecordMode) {
+      animate();
+    } else {
+      (window as any).renderFrameOffline = (frameIndex: number) => {
+        const fps = audioEngine.offlineFps;
+        const dt = 1 / fps;
+        audioEngine.seekOfflineFrame(frameIndex);
+        tick(dt);
+      };
+    }
 
     /* ---------- cleanup ---------- */
     return () => {

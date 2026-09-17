@@ -43,9 +43,11 @@ export default function App() {
   const [audio, setAudio] = useState<AudioSnapshot>(snapshotAudio);
   const [fps, setFps] = useState(60);
   const [beatTick, setBeatTick] = useState(0);
-  const [uiHidden, setUiHidden] = useState(false);
+  const isRecordMode = typeof window !== "undefined" && new URLSearchParams(window.location.search).has('record');
+  const isCleanMode = typeof window !== "undefined" && new URLSearchParams(window.location.search).has('clean');
+  const [uiHidden, setUiHidden] = useState(isRecordMode || isCleanMode);
   const [panelOpen, setPanelOpen] = useState(() => (typeof window !== "undefined" ? window.innerWidth > 1024 : true));
-  const [welcome, setWelcome] = useState(true);
+  const [welcome, setWelcome] = useState(!(isRecordMode || isCleanMode));
   const [dragOver, setDragOver] = useState(false);
 
   const setMesh = useCallback((p: Partial<MeshParams>) => setMeshState((s) => ({ ...s, ...p })), []);
@@ -53,6 +55,17 @@ export default function App() {
   const setScene = useCallback((p: Partial<SceneParams>) => setSceneState((s) => ({ ...s, ...p })), []);
 
   useEffect(() => audioEngine.subscribe(() => setAudio(snapshotAudio())), []);
+
+  useEffect(() => {
+    (window as any).initOfflineRender = async (file: File, config: any, targetFps: number) => {
+      if (config?.mesh) setMesh(config.mesh);
+      if (config?.glitch) setGlitch(config.glitch);
+      if (config?.scene) setScene(config.scene);
+      
+      const duration = await audioEngine.loadOffline(file, targetFps);
+      return Math.ceil(duration * targetFps);
+    };
+  }, [setMesh, setGlitch, setScene]);
 
   const trigger = useCallback((t: GlitchType) => vizRef.current?.triggerGlitch(t), []);
   const resetCamera = useCallback(() => vizRef.current?.resetCamera(), []);
@@ -214,7 +227,7 @@ export default function App() {
       )}
 
       {/* hidden-UI restore */}
-      {uiHidden && (
+      {uiHidden && !isRecordMode && !isCleanMode && (
         <button
           onClick={() => setUiHidden(false)}
           className="absolute right-4 bottom-4 z-30 flex items-center gap-2 rounded-full border border-white/15 bg-black/50 px-4 py-2 font-mono text-[11px] tracking-widest text-white/60 opacity-30 backdrop-blur transition-all hover:opacity-100"
