@@ -57,7 +57,7 @@ export default function App() {
   useEffect(() => audioEngine.subscribe(() => setAudio(snapshotAudio())), []);
 
   useEffect(() => {
-    (window as any).initOfflineRender = async (file: File, config: any, targetFps: number) => {
+    (window as any).initOfflineRender = async (file: File, config: any, targetFps: number, isFirstChunk: boolean) => {
       if (config?.mesh) setMesh(config.mesh);
       if (config?.glitch) setGlitch(config.glitch);
       if (config?.scene) setScene(config.scene);
@@ -67,8 +67,8 @@ export default function App() {
         if (config.audio.beatThreshold !== undefined) audioEngine.setBeatThreshold(config.audio.beatThreshold);
       }
       
-      const duration = await audioEngine.loadOffline(file, targetFps);
-      return Math.ceil(duration * targetFps);
+      const chunkDuration = await audioEngine.loadOfflineChunk(file, targetFps, isFirstChunk);
+      return Math.ceil(chunkDuration * targetFps);
     };
   }, [setMesh, setGlitch, setScene]);
 

@@ -61,10 +61,18 @@ async function startViteServer() {
     const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
     const server = spawn(npmCmd, ['run', 'dev'], { cwd: rootDir, shell: true });
     
+    let buffer = '';
     server.stdout.on('data', (data) => {
       const output = data.toString();
-      if (output.includes('Local:')) {
-        const match = output.match(/http:\/\/localhost:\d+/);
+      buffer += output;
+      console.log(`[Vite Out]: ${output.trim()}`); 
+      
+      // Vite injects bold ANSI color codes (\x1B[1m) directly into the middle of the URL 
+      // (e.g. http://localhost:\x1B[1m5173), which breaks standard regex matching!
+      // We must strip all ANSI codes before matching.
+      const cleanBuffer = buffer.replace(/\x1B\[[\d;]*[a-zA-Z]/g, '');
+      if (cleanBuffer.includes('Local:')) {
+        const match = cleanBuffer.match(/http:\/\/(localhost|127\.0\.0\.1):\d+/);
         if (match) {
           resolve({ server, url: match[0] });
         }
@@ -72,28 +80,37 @@ async function startViteServer() {
     });
 
     server.stderr.on('data', (data) => {
-      // console.error(data.toString());
+      console.error(`[Vite Err]: ${data.toString().trim()}`);
     });
 
     server.on('error', (err) => {
       reject(err);
+    });
+
+    server.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`Vite server exited with code ${code}`));
+      }
     });
   });
 }
 
 async function render() {
   let viteServer;
+  let browser;
   try {
+    console.log('[1/4] Starting Vite server...');
     const { server, url } = await startViteServer();
     viteServer = server;
-    console.log(`Vite server running at ${url}`);
+    console.log(`[1/4] Vite server running at ${url}`);
 
-    console.log('Launching browser...');
-    const browser = await puppeteer.launch({
-      headless: "new",
+    console.log('[2/4] Launching Puppeteer...');
+    browser = await puppeteer.launch({
+      headless: true, // Updated from 'new' for Puppeteer v22+
       defaultViewport: res,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security']
     });
+    console.log('[2/4] Puppeteer launched successfully.');
 
     const page = await browser.newPage();
     
@@ -104,26 +121,59 @@ async function render() {
       }
     });
 
-    console.log(`Navigating to ${url}/?record=1`);
+    console.log(`[3/4] Navigating to ${url}/?record=1`);
     await page.goto(`${url}/?record=1`, { waitUntil: 'networkidle0' });
 
-    console.log('Reading audio file...');
-    const audioData = fs.readFileSync(inputPath);
-    const audioUint8 = new Uint8Array(audioData);
+    console.log('Splitting audio into chunks for memory-safe FFT processing...');
+    const tempDir = path.resolve(rootDir, '.temp_audio_chunks');
+    if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.mkdirSync(tempDir, { recursive: true });
 
-    console.log('Initializing offline rendering in browser... This may take a few seconds to pre-compute FFTs.');
-    const totalFrames = await page.evaluate(async (audioBytes, config, fps) => {
-      // Create a temporary File object in the browser
-      const blob = new Blob([audioBytes]);
-      const file = new File([blob], "input.mp3", { type: "audio/mp3" });
+    // Use ffmpeg to split the file into 10-minute chunks (600s) as PCM WAV to ensure exact sample boundaries
+    const { execSync } = await import('child_process');
+    try {
+      execSync(`ffmpeg -y -i "${inputPath}" -f segment -segment_time 600 -c:a pcm_s16le "${path.join(tempDir, 'chunk_%04d.wav')}"`, { stdio: 'ignore' });
+    } catch (e) {
+      console.error('Failed to split audio:', e);
+      throw e;
+    }
+
+    const chunks = fs.readdirSync(tempDir).filter(f => f.endsWith('.wav')).sort();
+    console.log(`Split audio into ${chunks.length} chunk(s).`);
+
+    // Create an invisible file input to use Puppeteer's native file upload
+    await page.evaluate(() => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.id = 'cli-file-upload';
+      input.style.display = 'none';
+      document.body.appendChild(input);
+    });
+
+    let totalFrames = 0;
+    for (let i = 0; i < chunks.length; i++) {
+      const chunkPath = path.join(tempDir, chunks[i]);
+      console.log(`Computing FFTs for chunk ${i + 1}/${chunks.length}...`);
       
-      // Wait for window.initOfflineRender to be available
-      while (!window.initOfflineRender) {
-        await new Promise(r => setTimeout(r, 100));
-      }
-      
-      return await window.initOfflineRender(file, config, fps);
-    }, audioUint8, configObj, parseInt(options.fps));
+      const fileInput = await page.$('#cli-file-upload');
+      await fileInput.uploadFile(chunkPath);
+
+      const chunkFrames = await page.evaluate(async (config, fps, isFirst) => {
+        const input = document.getElementById('cli-file-upload');
+        const file = input.files[0];
+        
+        while (!window.initOfflineRender) {
+          await new Promise(r => setTimeout(r, 100));
+        }
+        
+        return await window.initOfflineRender(file, config, fps, isFirst);
+      }, configObj, parseInt(options.fps), i === 0);
+
+      totalFrames += chunkFrames;
+    }
+
+    // Clean up temporary chunks
+    fs.rmSync(tempDir, { recursive: true, force: true });
 
     console.log(`Pre-computation complete. Total frames to render: ${totalFrames} at ${options.fps} FPS.`);
 
@@ -192,11 +242,13 @@ async function render() {
     });
 
     console.log(`Video saved to ${outputPath}`);
-    await browser.close();
 
   } catch (err) {
     console.error('Render failed:', err);
   } finally {
+    if (browser) {
+      await browser.close().catch(() => {});
+    }
     if (viteServer) {
       viteServer.kill();
     }

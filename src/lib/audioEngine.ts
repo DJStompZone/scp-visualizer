@@ -273,18 +273,21 @@ class AudioEngine {
 
   /* ---------------- offline (record mode) ---------------- */
 
-  async loadOffline(file: File, fps: number): Promise<number> {
+  async loadOfflineChunk(file: File, fps: number, isFirstChunk: boolean): Promise<number> {
     this.ensureCtx();
     if (!this.ctx) return 0;
     
     const arrayBuffer = await file.arrayBuffer();
     const audioBuffer = await this.ctx.decodeAudioData(arrayBuffer);
     
-    this.fileName = file.name;
-    this.fileDuration = audioBuffer.duration;
-    this.mode = "file";
-    this.offlineFps = fps;
-    this.offlineData = [];
+    if (isFirstChunk) {
+      this.fileName = file.name;
+      this.fileDuration = 0;
+      this.mode = "file";
+      this.offlineFps = fps;
+      this.offlineData = [];
+    }
+    this.fileDuration += audioBuffer.duration;
     
     const offlineCtx = new OfflineAudioContext(
       audioBuffer.numberOfChannels,
