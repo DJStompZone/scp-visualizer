@@ -59,6 +59,10 @@ class AudioEngine {
   offlineFps = 60;
   offlineFrame = 0;
 
+  // auto-gain control
+  autoGain = 1.0;
+  currentRms = 0;
+
   // beat tracking
   private bassHistory: number[] = [];
   private lastBeatTime = 0;
@@ -102,6 +106,9 @@ class AudioEngine {
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = this.fftSize;
     this.analyser.smoothingTimeConstant = this.smoothing;
+    // Fix FFT clamping on mastered tracks
+    this.analyser.minDecibels = -100;
+    this.analyser.maxDecibels = 0;
     this.mixGain = this.ctx.createGain();
     this.mixGain.gain.value = 1.0;
     // audible path: mix -> master -> speakers
@@ -291,6 +298,8 @@ class AudioEngine {
     const analyser = offlineCtx.createAnalyser();
     analyser.fftSize = this.fftSize;
     analyser.smoothingTimeConstant = this.smoothing;
+    analyser.minDecibels = -100;
+    analyser.maxDecibels = 0;
     
     source.connect(analyser);
     analyser.connect(offlineCtx.destination);
@@ -637,6 +646,30 @@ class AudioEngine {
     } else {
       this.simulateIdle(dt);
     }
+    
+    // Calculate RMS to drive Auto-Gain Control (AGC)
+    if (this.liveInput || this.offlineData) {
+      const m = Math.min(this.timeData.length, 2048);
+      let s = 0;
+      for (let i = 0; i < m; i += 2) {
+        const v = (this.timeData[i] - 128) / 128;
+        s += v * v;
+      }
+      this.currentRms = Math.sqrt(s / (m / 2));
+      
+      // target a comfortable visual rms level (e.g., 0.22)
+      const targetGain = Math.min(8.0, Math.max(0.5, 0.22 / Math.max(0.005, this.currentRms)));
+      // asymmetric smoothing: attack fast (duck loud sounds), release slow (boost quiet sounds gradually)
+      if (targetGain < this.autoGain) {
+        this.autoGain += (targetGain - this.autoGain) * Math.min(1, dt * 8.0);
+      } else {
+        this.autoGain += (targetGain - this.autoGain) * Math.min(1, dt * 0.4);
+      }
+    } else {
+      this.currentRms = 0.05;
+      this.autoGain = 1.0;
+    }
+
     // decay beat pulse
     this.beatPulse *= Math.exp(-dt * 5.2);
     if (this.beatPulse < 0.01) this.beatPulse = 0;
@@ -645,12 +678,12 @@ class AudioEngine {
     const bass = this.readBand(0);
     // beat detect on live OR simulated
     this.bassHistory.push(bass);
-    if (this.bassHistory.length > 43) this.bassHistory.shift();
+    if (this.bassHistory.length > 35) this.bassHistory.shift();
     const avg = this.bassHistory.reduce((a, b) => a + b, 0) / Math.max(1, this.bassHistory.length);
     const now = performance.now();
     if (
       bass > this.beatThreshold &&
-      bass > avg * 1.12 &&
+      bass > avg * 1.35 &&
       now - this.lastBeatTime > this.beatCooldownMs &&
       (this.liveInput ? this.energyRaw() > 0.06 : true)
     ) {
@@ -671,10 +704,22 @@ class AudioEngine {
     const bh = this.binHz();
     const loBin = Math.max(1, Math.floor(lo / bh));
     const hiBin = Math.min(this.freqData.length - 1, Math.ceil(hi / bh));
-    let sum = 0;
-    for (let b = loBin; b <= hiBin; b++) sum += this.freqData[b] / 255;
-    const n = Math.max(1, hiBin - loBin + 1);
-    return Math.min(1, (sum / n) * 1.6);
+    
+    let maxBin = 0;
+    for (let b = loBin; b <= hiBin; b++) {
+      if (this.freqData[b] > maxBin) maxBin = this.freqData[b];
+    }
+    
+    // Convert to a 0-1 float
+    const v = maxBin / 255;
+    
+    // Apply a power curve to expand dynamic range (pushes valleys down, keeps peaks high)
+    // This avoids the 'always clamped to 1.0' problem while keeping the signal punchy.
+    const expanded = Math.pow(v, 2.5);
+    
+    // Scale by our AGC, and apply per-band visual boosts (treble needs more visual juice)
+    const boosts = [1.2, 1.4, 1.6, 1.8, 2.2];
+    return Math.min(1, expanded * this.autoGain * boosts[i]);
   }
 
   private energyRaw(): number {
@@ -726,18 +771,7 @@ class AudioEngine {
     const highMid = this.readBand(3);
     const treble = this.readBand(4);
     const energy = Math.min(1, bass * 0.42 + lowMid * 0.22 + mid * 0.18 + highMid * 0.1 + treble * 0.08);
-    let rms = 0;
-    if (this.liveInput || this.offlineData) {
-      const m = Math.min(this.timeData.length, 2048);
-      let s = 0;
-      for (let i = 0; i < m; i += 2) {
-        const v = (this.timeData[i] - 128) / 128;
-        s += v * v;
-      }
-      rms = Math.sqrt(s / (m / 2));
-    } else {
-      rms = 0.05; // just a low constant base for idle
-    }
+    const rms = this.currentRms;
     return { bass, lowMid, mid, highMid, treble, energy, rms, beat: this.beatFlag, beatPulse: this.beatPulse };
   }
 }

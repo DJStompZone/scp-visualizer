@@ -580,8 +580,12 @@ const VisualizerCanvas = forwardRef<VisualizerHandle, Props>(function Visualizer
       if (P.mesh.depth !== lastDepth || P.mesh.bevel !== lastBevel) {
         lastDepth = P.mesh.depth;
         lastBevel = P.mesh.bevel;
-        if (rebuildTimer) clearTimeout(rebuildTimer);
-        rebuildTimer = window.setTimeout(rebuildExtrusion, 140);
+        if (isRecordMode) {
+          rebuildExtrusion();
+        } else {
+          if (rebuildTimer) clearTimeout(rebuildTimer);
+          rebuildTimer = window.setTimeout(rebuildExtrusion, 140);
+        }
       }
       arrowMat.wireframe = ringMat.wireframe = outlineMat.wireframe = P.mesh.wireframe;
       coreGroup.visible = P.mesh.core;
@@ -789,8 +793,11 @@ const VisualizerCanvas = forwardRef<VisualizerHandle, Props>(function Visualizer
       controls.autoRotate = P.scene.autoOrbit;
       controls.autoRotateSpeed = 5 * P.scene.orbitSpeed * (1 + L.energy * 0.9);
       controls.update();
-      // beat shake
-      const shakeAmt = L.beatPulse * 0.09 * P.glitch.shakeOnBeat + Math.max(G.rgb, G.slice) * 0.05;
+      // camera shake - driven by continuous bass rumble & RMS loudness, not just beat impulse
+      const bassDominance = L.bass / Math.max(0.01, L.energy);
+      const rumble = L.bass * L.rms * bassDominance * 0.4;
+      const shakeAmt = (L.beatPulse * 0.15 + rumble) * P.glitch.shakeOnBeat + Math.max(G.rgb, G.slice) * 0.15;
+      
       camShake.set((Math.random() - 0.5) * shakeAmt, (Math.random() - 0.5) * shakeAmt);
       camera.position.x += camShake.x;
       camera.position.y += camShake.y;
@@ -809,7 +816,7 @@ const VisualizerCanvas = forwardRef<VisualizerHandle, Props>(function Visualizer
       postU.uVig.value = isKeyPlate ? 0 : P.scene.vignette;
       postU.uInvert.value = Math.min(1, G.invert);
       postU.uFlash.value = Math.min(1.2, G.flash * 0.8 + L.beatPulse * 0.22);
-      postU.uShake.value.set((Math.random() - 0.5) * shakeAmt * 0.12, (Math.random() - 0.5) * shakeAmt * 0.12);
+      postU.uShake.value.set((Math.random() - 0.5) * shakeAmt * 0.2, (Math.random() - 0.5) * shakeAmt * 0.2);
 
       // render: scene → RT → post → screen
       renderer.setRenderTarget(rt);

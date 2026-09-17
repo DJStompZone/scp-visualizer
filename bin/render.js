@@ -59,7 +59,7 @@ async function startViteServer() {
   return new Promise((resolve, reject) => {
     console.log('Starting local Vite server...');
     const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    const server = spawn(npmCmd, ['run', 'dev'], { cwd: rootDir });
+    const server = spawn(npmCmd, ['run', 'dev'], { cwd: rootDir, shell: true });
     
     server.stdout.on('data', (data) => {
       const output = data.toString();

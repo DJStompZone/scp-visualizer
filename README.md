@@ -55,10 +55,12 @@ The project includes a Node.js CLI script that utilizes Puppeteer and FFmpeg to 
 ### Usage
 
 ```bash
-npm run render -- --input <path-to-audio> [options]
+node bin/render.js --input <path-to-audio> [options]
 ```
 
-### CLI Options
+*(Note: If you encounter issues passing arguments with `npm run render` in PowerShell, calling `node bin/render.js` directly as shown above is the most reliable method.)*
+
+**Required Arguments:**
 
 | Option | Shortcut | Default | Description |
 | :--- | :--- | :--- | :--- |
@@ -115,24 +117,45 @@ Here is a full schema example with default values:
     "fov": 38,
     "vignette": 0.55,
     "speed": 1
+  },
+  "audio": {
+    "fftSize": 2048,
+    "smoothing": 0.82,
+    "beatThreshold": 0.32
   }
 }
 ```
 
 ### Parameter Details
 
+#### `audio`
+- **`fftSize`**: `number` - The size of the FFT used for frequency analysis. Must be a power of 2.
+- **`smoothing`**: `number` - FFT smoothing time constant (0.0 to 1.0).
+- **`beatThreshold`**: `number` - Sensitivity of the beat detection algorithm (lower triggers more easily).
+
 #### `mesh`
 - **`material`**: `"obsidian" | "chrome" | "neon" | "hologram" | "paper" | "molten"` - The base material theme.
+- **`depth`**: `number` - Extrusion depth of the SVG geometry.
+- **`bevel`**: `number` - Bevel thickness on the extruded geometry.
 - **`extrusionPulse`**: `number` - How intensely the mesh extrudes to the bass.
+- **`wireframe` / `edges` / `core` / `halo` / `particles` / `grid`**: `boolean` - Toggles for various 3D layers and elements.
 
 #### `glitch`
 - **`auto`**: `boolean` - Whether the visualizer should trigger random glitches autonomously based on the beat.
 - **`sensitivity`**: `number` - Threshold for auto-glitch triggers.
 - **`rgb` / `slice` / `vertex` / `grain` / `scanline`**: `number` - Intensity multipliers for the various shader effects.
+- **`shakeOnBeat`**: `number` - Intensity of the camera shake on kick drums and glitches.
+- **`invertPulse`**: `boolean` - Flash the screen with inverted colors on heavy bass drops.
 
 #### `scene`
 - **`background`**: `"void" | "paper" | "green" | "transparent" | "custom"` - The background environment. Use `"green"` to render a green-screen video for easy chromakeying in video editors.
-- **`speed`**: `number` - Overall time multiplier for ambient animations (orbiting, particles). 
+- **`customColor`**: `string` - Hex color code used when background is set to `"custom"`.
+- **`autoOrbit`**: `boolean` - Auto-rotate the camera around the rig.
+- **`orbitSpeed`**: `number` - Speed of the auto-orbit camera.
+- **`speed`**: `number` - Overall time multiplier for ambient animations (orbiting, particles).
+- **`fov`**: `number` - Camera field of view.
+- **`vignette`**: `number` - Intensity of the dark edges in post-processing.
+- **`trippy`**: `boolean` - Engage trip mode (hue-cycling emissives, drifting color grades).
 
 ## Built With
 

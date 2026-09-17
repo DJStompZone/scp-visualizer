@@ -61,6 +61,11 @@ export default function App() {
       if (config?.mesh) setMesh(config.mesh);
       if (config?.glitch) setGlitch(config.glitch);
       if (config?.scene) setScene(config.scene);
+      if (config?.audio) {
+        if (config.audio.fftSize) audioEngine.setFFTSize(config.audio.fftSize);
+        if (config.audio.smoothing !== undefined) audioEngine.setSmoothing(config.audio.smoothing);
+        if (config.audio.beatThreshold !== undefined) audioEngine.setBeatThreshold(config.audio.beatThreshold);
+      }
       
       const duration = await audioEngine.loadOffline(file, targetFps);
       return Math.ceil(duration * targetFps);
