@@ -17,10 +17,11 @@ program
   .name('render')
   .description('Render the visualizer to a video file')
   .requiredOption('-i, --input <path>', 'Input audio file')
-  .option('-o, --output <path>', 'Output video file', 'output.mp4')
+  .option('-o, --output <path>', 'Output video file', 'output.mkv')
   .option('-r, --resolution <res>', 'Resolution (1080p, 1440p, 4k)', '1080p')
   .option('-f, --fps <fps>', 'Frames per second', '60')
   .option('-c, --config <path>', 'Path to JSON configuration for visuals')
+  .option('-s, --start-frame <frame>', 'Frame index to resume rendering from', '0')
   .parse(process.argv);
 
 const options = program.opts();
@@ -124,22 +125,32 @@ async function render() {
     console.log(`[3/4] Navigating to ${url}/?record=1`);
     await page.goto(`${url}/?record=1`, { waitUntil: 'networkidle0' });
 
-    console.log('Splitting audio into chunks for memory-safe FFT processing...');
-    const tempDir = path.resolve(rootDir, '.temp_audio_chunks');
-    if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true });
-    fs.mkdirSync(tempDir, { recursive: true });
-
-    // Use ffmpeg to split the file into 10-minute chunks (600s) as PCM WAV to ensure exact sample boundaries
+    console.log('Preparing audio chunks for memory-safe FFT processing...');
+    const crypto = await import('crypto');
+    const os = await import('os');
     const { execSync } = await import('child_process');
-    try {
-      execSync(`ffmpeg -y -i "${inputPath}" -f segment -segment_time 600 -c:a pcm_s16le "${path.join(tempDir, 'chunk_%04d.wav')}"`, { stdio: 'ignore' });
-    } catch (e) {
-      console.error('Failed to split audio:', e);
-      throw e;
+    
+    // Create a stable, idempotent cache key based on the input file
+    const fileStat = fs.statSync(inputPath);
+    const hash = crypto.createHash('md5').update(`${inputPath}-${fileStat.mtimeMs}`).digest('hex');
+    const tempDir = path.join(os.tmpdir(), `glitchy_audio_chunks_${hash}`);
+    
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+      console.log(`Splitting audio into cache dir: ${tempDir}`);
+      // Use ffmpeg to split the file into 10-minute chunks (600s) as PCM WAV
+      try {
+        execSync(`ffmpeg -y -i "${inputPath}" -f segment -segment_time 600 -c:a pcm_s16le "${path.join(tempDir, 'chunk_%04d.wav')}"`, { stdio: 'ignore' });
+      } catch (e) {
+        console.error('Failed to split audio:', e);
+        throw e;
+      }
+    } else {
+      console.log(`Found cached audio chunks in: ${tempDir}`);
     }
 
     const chunks = fs.readdirSync(tempDir).filter(f => f.endsWith('.wav')).sort();
-    console.log(`Split audio into ${chunks.length} chunk(s).`);
+    console.log(`Processing ${chunks.length} chunk(s).`);
 
     // Create an invisible file input to use Puppeteer's native file upload
     await page.evaluate(() => {
@@ -169,6 +180,11 @@ async function render() {
         return await window.initOfflineRender(file, config, fps, isFirst);
       }, configObj, parseInt(options.fps), i === 0);
 
+      // Clear the file input to force Chrome to release the file lock
+      await page.evaluate(() => {
+        document.getElementById('cli-file-upload').value = '';
+      });
+
       totalFrames += chunkFrames;
     }
 
@@ -177,20 +193,37 @@ async function render() {
 
     console.log(`Pre-computation complete. Total frames to render: ${totalFrames} at ${options.fps} FPS.`);
 
-    // Spawn ffmpeg
     console.log('Spawning ffmpeg...');
-    const ffmpegCmd = 'ffmpeg';
+    let ffmpegCmd = 'ffmpeg';
+    
+    // Auto-detect hardware encoders for massive speedup
+    let hwEncoder = 'libx264';
+    try {
+      const encoders = execSync('ffmpeg -encoders', { encoding: 'utf-8' });
+      if (encoders.includes('h264_nvenc')) hwEncoder = 'h264_nvenc';
+      else if (encoders.includes('h264_amf')) hwEncoder = 'h264_amf';
+      else if (encoders.includes('h264_qsv')) hwEncoder = 'h264_qsv';
+    } catch (e) {}
+    
+    console.log(`Using H.264 encoder: ${hwEncoder}`);
+
+    const startFrame = parseInt(options.startFrame);
+    if (startFrame > 0) {
+      console.log(`Resuming render from frame ${startFrame}...`);
+    }
+
     const ffmpegArgs = [
       '-y',
       '-f', 'image2pipe',
-      '-vcodec', 'png',
+      '-vcodec', 'mjpeg', // Using jpeg for massively faster Puppeteer extraction
       '-r', options.fps.toString(),
       '-i', '-',
+      '-ss', (startFrame / parseInt(options.fps)).toString(), // Seek audio to keep sync
       '-i', inputPath,
-      '-c:v', 'libx264',
+      '-c:v', hwEncoder,
       '-pix_fmt', 'yuv420p',
-      '-preset', 'slow',
-      '-crf', '18',
+      '-preset', hwEncoder === 'libx264' ? 'ultrafast' : 'p4', // Fast preset
+      ...(hwEncoder === 'h264_nvenc' ? ['-cq', '20'] : ['-crf', '20']),
       '-c:a', 'aac',
       '-b:a', '192k',
       '-map', '0:v:0',
@@ -208,7 +241,7 @@ async function render() {
 
     console.log('Starting frame capture...');
     let lastLogTime = Date.now();
-    for (let i = 0; i < totalFrames; i++) {
+    for (let i = startFrame; i < totalFrames; i++) {
       await page.evaluate(async (frameIndex) => {
         return new Promise(resolve => {
           window.renderFrameOffline(frameIndex);
@@ -217,7 +250,8 @@ async function render() {
         });
       }, i);
 
-      const buffer = await page.screenshot({ type: 'png', omitBackground: true });
+      // JPEG is roughly 5-10x faster to encode in Puppeteer than PNG
+      const buffer = await page.screenshot({ type: 'jpeg', quality: 95 });
       
       const writeSuccess = ffmpegProcess.stdin.write(buffer);
       if (!writeSuccess) {

@@ -33,12 +33,12 @@ export default function App() {
     particles: true, grid: true, extrusionPulse: 0.55,
   });
   const [glitch, setGlitchState] = useState<GlitchParams>({
-    auto: true, sensitivity: 0.55, rgb: 0.22, slice: 0.12, vertex: 0.85,
+    auto: true, sensitivity: 0.55, cooldown: 2.0, rgb: 0.22, slice: 0.12, vertex: 0.85,
     grain: 0.35, scanline: 0.32, shakeOnBeat: 0.6, invertPulse: false,
   });
   const [scene, setSceneState] = useState<SceneParams>({
     background: "void", customColor: "#0d0221", autoOrbit: true,
-    orbitSpeed: 1, trippy: false, fov: 38, vignette: 0.55, speed: 1,
+    orbitSpeed: 1, trippy: false, spokenWord: false, fov: 38, vignette: 0.55, speed: 1,
   });
   const [audio, setAudio] = useState<AudioSnapshot>(snapshotAudio);
   const [fps, setFps] = useState(60);

@@ -25,6 +25,7 @@ export interface MeshParams {
 export interface GlitchParams {
   auto: boolean;
   sensitivity: number;
+  cooldown: number;
   rgb: number;
   slice: number;
   vertex: number;
@@ -40,6 +41,7 @@ export interface SceneParams {
   autoOrbit: boolean;
   orbitSpeed: number;
   trippy: boolean;
+  spokenWord: boolean;
   fov: number;
   vignette: number;
   speed: number;
@@ -476,7 +478,7 @@ const VisualizerCanvas = forwardRef<VisualizerHandle, Props>(function Visualizer
     postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), postMat));
 
     /* ---------- glitch state ---------- */
-    const G = { rgb: 0, slice: 0, skew: 0, invert: 0, flash: 0 };
+    const G = { rgb: 0, slice: 0, skew: 0, invert: 0, flash: 0, lastGlitchTime: -999 };
     let nextAutoAt = 2.2;
 
     function trigger(type: GlitchType) {
@@ -747,19 +749,32 @@ const VisualizerCanvas = forwardRef<VisualizerHandle, Props>(function Visualizer
 
       /* ----- glitch engine ----- */
       const isIdle = !audioEngine.liveInput && !audioEngine.offlineData;
+      const swMod = P.scene.spokenWord ? 0.15 : 1.0; // Spoken word severely dampers random glitches
       
       // beat-triggered
-      if (L.beat && P.glitch.auto && Math.random() < P.glitch.sensitivity * 0.85) trigger("random");
+      if (L.beat && P.glitch.auto && Math.random() < P.glitch.sensitivity * 0.85 * swMod) {
+        if (t > G.lastGlitchTime + P.glitch.cooldown) {
+          trigger("random");
+          G.lastGlitchTime = t;
+        }
+      }
+      
       // timed auto (like original GlitchController 0.5–3.5s)
       if (P.glitch.auto && t > nextAutoAt) {
-        if (!isIdle || Math.random() > 0.8) {
+        if ((!isIdle || Math.random() > 0.8) && t > G.lastGlitchTime + P.glitch.cooldown) {
           trigger(isIdle ? "rgb" : "random");
+          G.lastGlitchTime = t;
         }
-        const urgency = isIdle ? 0 : P.glitch.sensitivity * 0.65 + L.energy * 0.35;
+        const urgency = isIdle ? 0 : P.glitch.sensitivity * 0.65 * swMod + L.energy * 0.35 * swMod;
         nextAutoAt = t + (3.4 - urgency * 2.8) * (0.5 + Math.random()) + (isIdle ? 3 : 0);
       }
       // manual invert pulse on strong beats
-      if (L.beat && P.glitch.invertPulse && L.bass > 0.62) G.invert = Math.min(1, G.invert + 0.55);
+      if (L.beat && P.glitch.invertPulse && L.bass > (P.scene.spokenWord ? 0.85 : 0.62)) {
+        if (t > G.lastGlitchTime + P.glitch.cooldown) {
+          G.invert = Math.min(1, G.invert + 0.55);
+          G.lastGlitchTime = t;
+        }
+      }
 
       // decay
       G.rgb *= Math.exp(-rawDt * 3.6);
@@ -794,9 +809,9 @@ const VisualizerCanvas = forwardRef<VisualizerHandle, Props>(function Visualizer
       controls.autoRotateSpeed = 5 * P.scene.orbitSpeed * (1 + L.energy * 0.9);
       controls.update();
       // camera shake - driven by continuous bass rumble & RMS loudness, not just beat impulse
-      const bassDominance = L.bass / Math.max(0.01, L.energy);
-      const rumble = L.bass * L.rms * bassDominance * 0.4;
-      const shakeAmt = (L.beatPulse * 0.15 + rumble) * P.glitch.shakeOnBeat + Math.max(G.rgb, G.slice) * 0.15;
+      const bassDominance = Math.max(0, L.bass - (L.mid + L.treble) * 0.4);
+      const rumble = L.bass * L.rms * bassDominance * 0.45;
+      const shakeAmt = ((L.beatPulse * 0.15 + rumble) * P.glitch.shakeOnBeat + Math.max(G.rgb, G.slice) * 0.15) * swMod;
       
       camShake.set((Math.random() - 0.5) * shakeAmt, (Math.random() - 0.5) * shakeAmt);
       camera.position.x += camShake.x;

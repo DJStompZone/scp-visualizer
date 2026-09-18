@@ -100,6 +100,7 @@ Here is a full schema example with default values:
   "glitch": {
     "auto": true,
     "sensitivity": 0.55,
+    "cooldown": 2.0,
     "rgb": 0.22,
     "slice": 0.12,
     "vertex": 0.85,
@@ -114,6 +115,7 @@ Here is a full schema example with default values:
     "autoOrbit": true,
     "orbitSpeed": 1,
     "trippy": false,
+    "spokenWord": false,
     "fov": 38,
     "vignette": 0.55,
     "speed": 1
@@ -143,6 +145,7 @@ Here is a full schema example with default values:
 #### `glitch`
 - **`auto`**: `boolean` - Whether the visualizer should trigger random glitches autonomously based on the beat.
 - **`sensitivity`**: `number` - Threshold for auto-glitch triggers.
+- **`cooldown`**: `number` - Forced delay in seconds (e.g. 0.5 to 300.0) between major glitch triggers to prevent rapid-fire flashing.
 - **`rgb` / `slice` / `vertex` / `grain` / `scanline`**: `number` - Intensity multipliers for the various shader effects.
 - **`shakeOnBeat`**: `number` - Intensity of the camera shake on kick drums and glitches.
 - **`invertPulse`**: `boolean` - Flash the screen with inverted colors on heavy bass drops.
@@ -156,6 +159,7 @@ Here is a full schema example with default values:
 - **`fov`**: `number` - Camera field of view.
 - **`vignette`**: `number` - Intensity of the dark edges in post-processing.
 - **`trippy`**: `boolean` - Engage trip mode (hue-cycling emissives, drifting color grades).
+- **`spokenWord`**: `boolean` - Suppresses chaotic glitching and dampens shake for podcasts and audiobooks.
 
 ## Built With
 

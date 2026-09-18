@@ -395,6 +395,7 @@ export default function ControlPanel(props: Props) {
             <Section title="Auto glitch">
               <Toggle label="Beat + timer auto-glitch" checked={glitch.auto} onChange={(v) => props.setGlitch({ auto: v })} />
               <Slider label="Sensitivity" value={glitch.sensitivity} min={0} max={1} step={0.01} onChange={(v) => props.setGlitch({ sensitivity: v })} format={(v) => `${Math.round(v * 100)}%`} />
+              <Slider label="Cooldown (seconds)" value={glitch.cooldown} min={0} max={300} step={0.25} onChange={(v) => props.setGlitch({ cooldown: v })} format={(v) => `${v.toFixed(1)}s`} />
               <Toggle label="Invert flash on hard kicks" checked={glitch.invertPulse} onChange={(v) => props.setGlitch({ invertPulse: v })} />
             </Section>
 
@@ -475,6 +476,13 @@ export default function ControlPanel(props: Props) {
               </button>
               <p className="font-mono text-[10px] leading-relaxed text-white/35">
                 Hue-cycling emissives, rainbow halo + particles, drifting color grade. Driven by the same FFT.
+              </p>
+            </Section>
+
+            <Section title="Spoken Word Mode">
+              <Toggle label="Enable Podcast / Audiobook logic" checked={scene.spokenWord} onChange={(v) => props.setScene({ spokenWord: v })} />
+              <p className="font-mono text-[10px] leading-relaxed text-white/35">
+                Suppresses chaotic random glitching and dramatically raises the required bass threshold for camera shake and inverted flashes, preventing seizure-inducing visual noise on long continuous dialogue.
               </p>
             </Section>
           </>
