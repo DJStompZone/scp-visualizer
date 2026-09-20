@@ -66,7 +66,7 @@ node bin/render.js --input <path-to-audio> [options]
 | :--- | :--- | :--- | :--- |
 | `--input` | `-i` | **Required** | Path to the input audio file (mp3, wav, etc.) |
 | `--output` | `-o` | `output.mp4` | Path for the generated video file. |
-| `--resolution` | `-r` | `1080p` | Output resolution. Allowed values: `1080p`, `1440p`, `4k`. |
+| `--resolution` | `-r` | `1080p` | Output resolution. Allowed values: `144p`, `360p`, `480p`, `720p`, `1080p`, `1440p`, `4k`. |
 | `--fps` | `-f` | `60` | Frames per second for the output video. |
 | `--config` | `-c` | *(None)* | Path to a JSON configuration file to set visualizer parameters. |
 

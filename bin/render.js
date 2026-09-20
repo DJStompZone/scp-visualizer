@@ -18,7 +18,7 @@ program
   .description('Render the visualizer to a video file')
   .requiredOption('-i, --input <path>', 'Input audio file')
   .option('-o, --output <path>', 'Output video file', 'output.mkv')
-  .option('-r, --resolution <res>', 'Resolution (1080p, 1440p, 4k)', '1080p')
+  .option('-r, --resolution <res>', 'Resolution (144p, 360p, 480p, 720p, 1080p, 1440p, 4k)', '1080p')
   .option('-f, --fps <fps>', 'Frames per second', '60')
   .option('-c, --config <path>', 'Path to JSON configuration for visuals')
   .option('-s, --start-frame <frame>', 'Frame index to resume rendering from', '0')
@@ -27,6 +27,10 @@ program
 const options = program.opts();
 
 const resolutions = {
+  '144p': { width: 256, height: 144 },
+  '360p': { width: 640, height: 360 },
+  '480p': { width: 854, height: 480 },
+  '720p': { width: 1280, height: 720 },
   '1080p': { width: 1920, height: 1080 },
   '1440p': { width: 2560, height: 1440 },
   '4k': { width: 3840, height: 2160 }
@@ -34,7 +38,7 @@ const resolutions = {
 
 const res = resolutions[options.resolution.toLowerCase()];
 if (!res) {
-  console.error(`Invalid resolution: ${options.resolution}. Allowed values: 1080p, 1440p, 4k`);
+  console.error(`Invalid resolution: ${options.resolution}. Allowed values: ${Object.keys(resolutions).join(', ')}`);
   process.exit(1);
 }
 
