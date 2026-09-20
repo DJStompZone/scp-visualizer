@@ -240,7 +240,10 @@ async function render() {
     });
 
     console.log('Starting frame capture...');
-    let lastLogTime = Date.now();
+    const startTime = Date.now();
+    let frameTimestamps = [];
+    const windowMs = 30000;
+
     for (let i = startFrame; i < totalFrames; i++) {
       await page.evaluate(async (frameIndex) => {
         return new Promise(resolve => {
@@ -259,11 +262,46 @@ async function render() {
       }
 
       const now = Date.now();
-      if (now - lastLogTime > 2000 || i === totalFrames - 1) {
-        console.log(`Rendered frame ${i + 1}/${totalFrames} (${Math.round((i + 1) / totalFrames * 100)}%)`);
-        lastLogTime = now;
+      frameTimestamps.push(now);
+      // Time-based eviction for a true 30-second rolling window
+      frameTimestamps = frameTimestamps.filter(t => t > now - windowMs);
+
+      // Update progress bar every 2 frames or on last frame to avoid excessive stdout block
+      if (i % 2 === 0 || i === totalFrames - 1) {
+        const elapsed = (now - startTime) / 1000;
+        
+        let currentFps = 0;
+        if (frameTimestamps.length > 1) {
+          const windowElapsed = (frameTimestamps[frameTimestamps.length - 1] - frameTimestamps[0]) / 1000;
+          currentFps = (frameTimestamps.length - 1) / windowElapsed;
+        } else if (elapsed > 0) {
+          currentFps = (i - startFrame + 1) / elapsed;
+        }
+
+        const framesRemaining = totalFrames - (i + 1);
+        const eta = currentFps > 0 ? framesRemaining / currentFps : 0;
+        
+        const formatTime = (seconds) => {
+          if (!isFinite(seconds) || isNaN(seconds)) return '--:--';
+          const h = Math.floor(seconds / 3600);
+          const m = Math.floor((seconds % 3600) / 60);
+          const s = Math.floor(seconds % 60);
+          if (h > 0) return `${h}h ${m.toString().padStart(2, '0')}m`;
+          return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        };
+
+        const percent = ((i + 1) / totalFrames);
+        const barWidth = 30;
+        const completedChars = Math.round(barWidth * percent);
+        const bar = '█'.repeat(completedChars) + '░'.repeat(barWidth - completedChars);
+        const percentStr = (percent * 100).toFixed(1).padStart(5, ' ');
+        
+        const output = `\x1b[36m[${bar}]\x1b[0m \x1b[32m${percentStr}%\x1b[0m | Frame \x1b[36m${i + 1}/${totalFrames}\x1b[0m | FPS: \x1b[33m${currentFps.toFixed(1).padStart(4, ' ')}\x1b[0m | Elapsed: \x1b[36m${formatTime(elapsed)}\x1b[0m | ETA: \x1b[33m${formatTime(eta)}\x1b[0m`;
+        
+        process.stdout.write('\r' + output);
       }
     }
+    process.stdout.write('\n');
 
     console.log('Finished capturing frames. Finalizing video...');
     ffmpegProcess.stdin.end();
