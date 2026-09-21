@@ -143,3 +143,17 @@ vite.config.ts.timestamp-*
 .vite/
 
 .temp_audio_chunks/
+
+# Media files
+*.mp[34]
+*.wav
+*.ogg
+*.opus
+*.vorbis
+*.m4a
+*.aac
+*.flac
+*.mkv
+*.web[amv]
+
+*.svg
