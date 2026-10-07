@@ -2,9 +2,8 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { audioEngine } from "../lib/audioEngine";
-import { orbitAngleDeg, bobTransform, flipScaleX, throbScale, SVG_PX_TO_WORLD } from "../lib/animCurves";
-import { buildArrowGeometry, buildRingGeometry, buildOutlineGeometry } from "../lib/svgMesh";
 
 export type MaterialPreset = "obsidian" | "chrome" | "neon" | "hologram" | "paper" | "molten";
 export type BackgroundMode = "void" | "paper" | "green" | "transparent" | "custom";
@@ -347,27 +346,26 @@ const VisualizerCanvas = forwardRef<VisualizerHandle, Props>(function Visualizer
     rootGroup.add(glitchGroup);
     scene3.add(rootGroup);
 
-    let arrowGeo = buildArrowGeometry({ depth: 0.55, bevel: 0.045 });
-    let ringGeo = buildRingGeometry({ depth: 0.55, bevel: 0.045 });
-    const outlineGeo = buildOutlineGeometry(1);
+    // Build Pokeball Geometries
+    const R = 3.5;
+    
+    // HUD Rings
+    let hudRingGeo1 = new THREE.TorusGeometry(R * 1.3, 0.04, 32, 100);
+    let hudRingGeo2 = new THREE.TorusGeometry(R * 1.5, 0.08, 32, 100);
+    let hudRingGeo3 = new THREE.TorusGeometry(R * 1.7, 0.12, 32, 100);
 
-    const outlineMesh = new THREE.Mesh(outlineGeo, outlineMat);
-    const ringMesh = new THREE.Mesh(ringGeo, ringMat);
-    glitchGroup.add(outlineMesh, ringMesh);
+    const hudRing1 = new THREE.Mesh(hudRingGeo1, new THREE.MeshBasicMaterial({ color: "#dfdfdf", transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false }));
+    const hudRing2 = new THREE.Mesh(hudRingGeo2, new THREE.MeshBasicMaterial({ color: "#ff1c1c", transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false }));
+    const hudRing3 = new THREE.Mesh(hudRingGeo3, new THREE.MeshBasicMaterial({ color: "#dfdfdf", transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false }));
 
-    const orbitGroup = new THREE.Group();
-    glitchGroup.add(orbitGroup);
+    const pokeAssembly = new THREE.Group();
+    const topHalf = new THREE.Group();
+    const bottomHalf = new THREE.Group();
+    pokeAssembly.add(topHalf, bottomHalf, hudRing1, hudRing2, hudRing3);
+    glitchGroup.add(pokeAssembly);
 
-    interface ArrowRig {
-      pivot: THREE.Group;
-      bob: THREE.Group;
-      flip: THREE.Group;
-      mesh: THREE.Mesh;
-      edge: THREE.LineSegments | null;
-    }
-    const rigs: ArrowRig[] = [];
     const edgeMat = new THREE.LineBasicMaterial({ color: "#67e8f9", transparent: true, opacity: 0.55 });
-    const ringEdgeMat = new THREE.LineBasicMaterial({ color: "#f0abfc", transparent: true, opacity: 0.4 });
+    const edges: (THREE.LineSegments | null)[] = [];
 
     function buildEdges(mesh: THREE.Mesh, geo: THREE.BufferGeometry, mat: THREE.LineBasicMaterial) {
       const old = mesh.children.find((c) => c instanceof THREE.LineSegments);
@@ -386,20 +384,59 @@ const VisualizerCanvas = forwardRef<VisualizerHandle, Props>(function Visualizer
       }
     }
 
-    for (let i = 0; i < 3; i++) {
-      const pivot = new THREE.Group();
-      pivot.rotation.z = (-i * 120 * Math.PI) / 180;
-      const bob = new THREE.Group();
-      const flip = new THREE.Group();
-      const meshObj = new THREE.Mesh(arrowGeo, arrowMat);
-      const edge = buildEdges(meshObj, arrowGeo, edgeMat);
-      flip.add(meshObj);
-      bob.add(flip);
-      pivot.add(bob);
-      orbitGroup.add(pivot);
-      rigs.push({ pivot, bob, flip, mesh: meshObj, edge });
-    }
-    buildEdges(ringMesh, ringGeo, ringEdgeMat);
+    let gltfMixer: THREE.AnimationMixer | null = null;
+    let gltfDuration = 0;
+    let btnInnerMesh = new THREE.Mesh(); // dummy for tick loop
+
+    const loader = new GLTFLoader();
+    loader.load("/openable_pokeball.glb", (gltf) => {
+        const model = gltf.scene;
+        
+        // Auto-scale and center
+        const box = new THREE.Box3().setFromObject(model);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z);
+        
+        // Create a wrapper to center the model geometry before scaling
+        const wrapper = new THREE.Group();
+        model.position.sub(center); 
+        wrapper.add(model);
+        
+        if (maxDim > 0) wrapper.scale.setScalar((R * 2) / maxDim);
+        
+        model.traverse((child) => {
+            if ((child as THREE.Mesh).isMesh) {
+                const mesh = child as THREE.Mesh;
+                const matName = (mesh.material as THREE.Material).name;
+                
+                if (matName === 'material') {
+                    mesh.material = arrowMat;
+                } else if (matName === 'whilte') {
+                    mesh.material = outlineMat;
+                } else if (matName === 'black') {
+                    mesh.material = ringMat;
+                }
+                
+                if (mesh.name === 'Object_10') {
+                    btnInnerMesh = mesh;
+                    mesh.material = coreMat;
+                }
+                
+                const lines = buildEdges(mesh, mesh.geometry, edgeMat);
+                if (lines) edges.push(lines);
+            }
+        });
+        
+        if (gltf.animations.length > 0) {
+            gltfMixer = new THREE.AnimationMixer(model);
+            const action = gltfMixer.clipAction(gltf.animations[0]);
+            action.play();
+            gltfDuration = gltf.animations[0].duration;
+        }
+        
+        pokeAssembly.add(wrapper);
+    });
 
     // inner core
     const coreGroup = new THREE.Group();
@@ -518,22 +555,9 @@ const VisualizerCanvas = forwardRef<VisualizerHandle, Props>(function Visualizer
     let lastPreset: MaterialPreset = paramsRef.current.mesh.material;
 
     function rebuildExtrusion() {
-      const { depth, bevel } = paramsRef.current.mesh;
-      const nd = buildArrowGeometry({ depth, bevel });
-      const nr = buildRingGeometry({ depth, bevel });
-      const oa = arrowGeo;
-      const orr = ringGeo;
-      arrowGeo = nd;
-      ringGeo = nr;
-      rigs.forEach((r) => {
-        r.mesh.geometry = nd;
-        buildEdges(r.mesh, nd, edgeMat);
-      });
-      ringMesh.geometry = nr;
-      buildEdges(ringMesh, nr, ringEdgeMat);
-      oa.dispose();
-      orr.dispose();
+      // No-op for the Pokeball (it's a fixed 3D sphere)
     }
+
 
     /* ---------- resize ---------- */
     function onResize() {
@@ -597,8 +621,7 @@ const VisualizerCanvas = forwardRef<VisualizerHandle, Props>(function Visualizer
       grid.visible = P.mesh.grid && !isKeyPlate;
       // edge visibility
       const wantEdges = P.mesh.edges && !P.mesh.wireframe;
-      rigs.forEach((r) => r.mesh.children.forEach((c) => ((c as THREE.LineSegments).visible = wantEdges)));
-      ringMesh.children.forEach((c) => ((c as THREE.LineSegments).visible = wantEdges));
+      edges.forEach((lines) => { if (lines) lines.visible = wantEdges; });
 
       // background
       const bg = bgColorFor(P.scene.background, P.scene.customColor);
@@ -618,29 +641,41 @@ const VisualizerCanvas = forwardRef<VisualizerHandle, Props>(function Visualizer
       (gyro1.material as THREE.MeshBasicMaterial).blending = isPaper ? THREE.NormalBlending : THREE.AdditiveBlending;
       (gyro2.material as THREE.MeshBasicMaterial).blending = isPaper ? THREE.NormalBlending : THREE.AdditiveBlending;
 
-      /* ----- orbital choreography (original timing + delays) ----- */
-      const orbitT = orbitElapsed + 0.6; // delay-1: -0.6s
-      const bobT = t - 0.04; // delay-3: 40ms
-      const flipT = t - 1.2; // delay-2: 1.2s
-      const orbitDeg = orbitAngleDeg(orbitT);
-      orbitGroup.rotation.z = (-orbitDeg * Math.PI) / 180;
-
-      const bob = bobTransform(bobT);
-      const flipSX = flipScaleX(flipT);
-      const lift = L.bass * 0.35 + L.beatPulse * 0.12;
-      rigs.forEach((r) => {
-        r.bob.position.y = -bob.y * SVG_PX_TO_WORLD + lift * 0.35;
-        r.bob.scale.y = bob.sy;
-        r.flip.scale.x = flipSX === 0 ? 0.0001 : flipSX;
-      });
-
-      const throb = throbScale(t);
-      const outlineS = throb * (1 + L.bass * 0.075 + L.beatPulse * 0.028);
-      outlineMesh.scale.set(outlineS, outlineS, 1);
-      (outlineMesh.rotation as THREE.Euler).z = Math.sin(t * 0.24) * 0.02;
-
-      const ringS = 1 + L.mid * 0.045 + L.beatPulse * 0.02;
-      ringMesh.scale.set(ringS, ringS, 1);
+      /* ----- Pokeball choreography ----- */
+      // Spin animation (like CSS spin-anim)
+      pokeAssembly.rotation.z = Math.sin(orbitElapsed * 0.5) * 1.5; 
+      
+      // Pop animation
+      const popT = (t * 0.8) % 5.0; // 5s pop cycle
+      let popDist = 0;
+      if (popT > 1.75 && popT < 3.25) {
+          popDist = Math.sin((popT - 1.75) / 1.5 * Math.PI); // 0 to 1
+      }
+      
+      if (gltfMixer) {
+          gltfMixer.setTime(popDist * gltfDuration);
+      }
+      
+      const lift = L.bass * 0.85 + L.beatPulse * 0.42;
+      pokeAssembly.position.y = lift * 0.5;
+      
+      // Button flash
+      if (popT > 4.25 || L.beat) {
+          if (btnInnerMesh) btnInnerMesh.material = ringMat;
+      } else {
+          if (btnInnerMesh) btnInnerMesh.material = coreMat;
+      }
+      
+      // HUD Rings Expand
+      const hudScaleT = (t * 1.2) % 1.0;
+      hudRing1.scale.setScalar(1 + hudScaleT * 0.15 + L.mid * 0.1);
+      hudRing2.scale.setScalar(1 + hudScaleT * 0.25 + L.highMid * 0.1);
+      hudRing3.scale.setScalar(1 + hudScaleT * 0.35 + L.treble * 0.1);
+      
+      const hudFlash = 1 + L.bass * 0.5;
+      (hudRing1.material as THREE.MeshBasicMaterial).opacity = 0.4 * hudFlash;
+      (hudRing2.material as THREE.MeshBasicMaterial).opacity = 0.6 * hudFlash;
+      (hudRing3.material as THREE.MeshBasicMaterial).opacity = 0.3 * hudFlash;
 
       // extrusion breathing
       const ez = 1 + (L.bass * 0.9 + L.beatPulse * 0.5) * P.mesh.extrusionPulse;
@@ -872,11 +907,12 @@ const VisualizerCanvas = forwardRef<VisualizerHandle, Props>(function Visualizer
       if (rebuildTimer) clearTimeout(rebuildTimer);
       controls.dispose();
       rt.dispose();
-      arrowGeo.dispose();
-      ringGeo.dispose();
-      outlineGeo.dispose();
+      // (GLB handles its own geometries, but we clean up our procedural rings)
+      hudRingGeo1.dispose();
+      hudRingGeo2.dispose();
+      hudRingGeo3.dispose();
       pGeo.dispose();
-      [arrowMat, ringMat, outlineMat, coreMat, haloMat, pMat, edgeMat, ringEdgeMat, postMat].forEach((m) => m.dispose());
+      [arrowMat, ringMat, outlineMat, coreMat, haloMat, pMat, edgeMat, postMat].forEach((m) => m.dispose());
       pmrem.dispose();
       renderer.dispose();
       container.removeChild(renderer.domElement);
